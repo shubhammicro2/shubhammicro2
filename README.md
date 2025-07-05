@@ -1,4 +1,4 @@
-# 👋 Hi, I’m Shubham
+# 👋 Hi I am Shubham
 
 ## 🌐 About Me
 - **Cloud Architect** specializing in designing scalable, secure, and resilient cloud infrastructure.
