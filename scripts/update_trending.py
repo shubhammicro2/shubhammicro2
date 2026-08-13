@@ -32,9 +32,21 @@ def fetch_top_repos(session, q, per_page):
         "Accept": "application/vnd.github.v3+json",
         "User-Agent": "update-trending-script"
     }
+    print(f"DEBUG: Requesting {url} params={params}", file=sys.stderr)
     r = session.get(url, headers=headers, params=params, timeout=15)
-    r.raise_for_status()
-    return r.json().get("items", [])
+    try:
+        r.raise_for_status()
+    except requests.HTTPError as e:
+        print("GitHub API error:", e, file=sys.stderr)
+        print("Response status:", r.status_code, "body:", r.text, file=sys.stderr)
+        raise
+    data = r.json()
+    items = data.get("items", [])
+    print(f"DEBUG: fetched {len(items)} items (total_count={data.get('total_count')})", file=sys.stderr)
+    if len(items) > 0:
+        first = items[0]
+        print("DEBUG: first repo:", first.get("full_name"), first.get("html_url"), "stars:", first.get("stargazers_count"), file=sys.stderr)
+    return items
 
 def make_block(items, count, since):
     lines = []
@@ -52,19 +64,14 @@ def make_block(items, count, since):
     return "\n".join(lines) + "\n"
 
 def insert_after_heading(readme_text, block):
-    # Match headings like: # Lets connect, ## Lets connect, ### Let's connect etc.
-    # Accepts "lets" or "let's" (case-insensitive)
     header_re = re.compile(r"(^\s*#{1,6}\s*let(?:'|’)?s\s+connect\s*$)", flags=re.I | re.M)
     m = header_re.search(readme_text)
     if m:
         insert_pos = m.end()
-        # If the block markers already exist elsewhere, first remove them to avoid duplicates
         if "<!-- TRENDING_START -->" in readme_text and "<!-- TRENDING_END -->" in readme_text:
             readme_text = re.sub(r"<!-- TRENDING_START -->.*?<!-- TRENDING_END -->", "", readme_text, flags=re.S)
-        # Insert block after the heading with two newlines
         return readme_text[:insert_pos] + "\n\n" + block + readme_text[insert_pos:]
     else:
-        # Fallback: replace existing markers or append to end
         if "<!-- TRENDING_START -->" in readme_text and "<!-- TRENDING_END -->" in readme_text:
             return re.sub(r"<!-- TRENDING_START -->.*?<!-- TRENDING_END -->", block, readme_text, flags=re.S)
         else:
@@ -90,12 +97,13 @@ def main():
 
     try:
         items = fetch_top_repos(session, q, per_page=count)
-    except requests.HTTPError as e:
-        print("GitHub API error:", e, file=sys.stderr)
-        sys.exit(1)
     except Exception as e:
-        print("Unexpected error:", e, file=sys.stderr)
+        print("ERROR fetching repos:", e, file=sys.stderr)
         sys.exit(1)
+
+    if not items:
+        print("No items fetched from GitHub Search API; aborting README update.", file=sys.stderr)
+        sys.exit(0)
 
     block = make_block(items, count, since)
     update_readme(block)
