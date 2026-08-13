@@ -32,3 +32,8 @@ I’m always looking for new open source projects to contribute to—let’s bui
 shubhammicro2/shubhammicro2 is a ✨ special ✨ repository because its `README.md` (this file) appears on your GitHub profile.
 You can click the Preview link to take a look at your changes.
 --->
+
+<!-- TRENDING_START -->
+### Top 20 trending GitHub repositories (created since 2026-08-06)
+
+<!-- TRENDING_END -->
