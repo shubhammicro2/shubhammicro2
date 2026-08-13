@@ -33,7 +33,7 @@ def fetch_top_repos(session, q, per_page):
         "User-Agent": "update-trending-script"
     }
     print(f"DEBUG: Requesting {url} params={params}", file=sys.stderr)
-    r = session.get(url, headers=headers, params=params, timeout=15)
+    r = session.get(url, headers=headers, params=params, timeout=20)
     try:
         r.raise_for_status()
     except requests.HTTPError as e:
@@ -86,23 +86,53 @@ def update_readme(block, path="README.md"):
     with open(path, "w", encoding="utf-8") as f:
         f.write(new)
 
+def try_windows(session, base_days, count, language):
+    # Attempt sequence: base_days -> 30 -> 90 -> 365 as last resort
+    windows = [base_days]
+    if base_days not in (30, 90, 365):
+        windows += [30, 90, 365]
+    tried = []
+    for days in windows:
+        since = (datetime.datetime.utcnow() - datetime.timedelta(days=days)).date().isoformat()
+        q = build_query(since, language)
+        print(f"DEBUG: trying window days={days}, since={since}", file=sys.stderr)
+        items = fetch_top_repos(session, q, per_page=count)
+        tried.append((days, len(items), since))
+        if items:
+            return items, tried, since
+    return [], tried, None
+
 def main():
-    days = int(os.environ.get("TREND_DAYS", "7"))
+    base_days = int(os.environ.get("TREND_DAYS", "7"))
     count = int(os.environ.get("RESULTS", "20"))
     language = os.environ.get("LANGUAGE") or None
 
-    since = (datetime.datetime.utcnow() - datetime.timedelta(days=days)).date().isoformat()
-    q = build_query(since, language)
     session = requests_session()
 
     try:
-        items = fetch_top_repos(session, q, per_page=count)
+        items, tried, since = try_windows(session, base_days, count, language)
     except Exception as e:
         print("ERROR fetching repos:", e, file=sys.stderr)
         sys.exit(1)
 
+    for days, n, s in tried:
+        print(f"DEBUG: tried window {days} days -> fetched {n} items (since={s})", file=sys.stderr)
+
     if not items:
-        print("No items fetched from GitHub Search API; aborting README update.", file=sys.stderr)
+        # Last-resort: search a broader timeframe (365 days) but still safe
+        fallback_since = (datetime.datetime.utcnow() - datetime.timedelta(days=365)).date().isoformat()
+        q = build_query(fallback_since, language)
+        print(f"DEBUG: fallback to 365-day window since={fallback_since}", file=sys.stderr)
+        try:
+            items = fetch_top_repos(session, q, per_page=count)
+        except Exception as e:
+            print("ERROR fallback fetch:", e, file=sys.stderr)
+            sys.exit(1)
+        print(f"DEBUG: fallback fetched {len(items)} items", file=sys.stderr)
+        since = fallback_since
+
+    if not items:
+        print("No items fetched from GitHub Search API after all attempts; aborting README update.", file=sys.stderr)
         sys.exit(0)
 
     block = make_block(items, count, since)
